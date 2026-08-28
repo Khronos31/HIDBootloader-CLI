@@ -12,7 +12,7 @@ Linux向けの、Microchip HID bootloader対応デバイス用コマンドライ
 
 ## 状態
 
-現在は仕様・ライセンス監査とプロジェクト骨格の段階です。実機に対する書込み機能は未完成です。
+現在は初期実装段階です。`--list`によるLinux HIDデバイス列挙のみ実装済みで、実機に対する書込み機能は未完成です。
 
 ## ライセンス
 
@@ -21,4 +21,3 @@ Linux向けの、Microchip HID bootloader対応デバイス用コマンドライ
 Microchip、PIC、MCHPFSUSB、HID BootloaderおよびBit Trade Oneは、それぞれの権利者に帰属します。本プロジェクトは各社の公式製品ではありません。
 
 ライセンス調査の記録は[`docs/license-audit.md`](docs/license-audit.md)にあります。
-

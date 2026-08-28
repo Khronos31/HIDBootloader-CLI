@@ -11,3 +11,7 @@ software.
 No source code, binary distribution, artwork, or trademark artwork from the
 Microchip or Bit Trade One implementations is included in this repository.
 
+The release binary is intended to be built with the Go toolchain with
+`CGO_ENABLED=0`. Go's runtime and standard library are distributed under
+their own BSD-style terms; the applicable Go distribution license text is
+available from https://go.dev/LICENSE and must accompany binary releases.

@@ -7,12 +7,12 @@ bootloader device, primarily Bit Trade One AD00020/AD00020P.
 
 ## Initial commands
 
-- `list`: enumerate compatible bootloader devices.
-- `write IMAGE.hex`: parse Intel HEX, erase, program, verify, and reset one
+- `--list`: enumerate compatible bootloader devices.
+- `--write IMAGE.hex`: parse Intel HEX, erase, program, verify, and reset one
   selected device.
-- `verify IMAGE.hex`: compare the image with device memory without erasing or
-  programming.
-- `reset`: ask the bootloader to leave boot mode.
+- `--verify IMAGE.hex`: compare the image with device memory without erasing or
+   programming.
+- `--reset`: ask the bootloader to leave boot mode.
 
 The exact command-line spelling may change before the first stable release.
 
@@ -35,4 +35,3 @@ The exact command-line spelling may change before the first stable release.
 - Serial/HID configuration of the AD00020 application firmware.
 - Replacing or modifying the bootloader firmware.
 - Support for arbitrary PIC families before AD00020 compatibility is proven.
-
