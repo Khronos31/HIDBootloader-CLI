@@ -106,7 +106,14 @@ commands are not implemented yet; this version only enumerates hidraw devices.
 }
 
 func parseID(text string) (uint16, error) {
-	value, err := strconv.ParseUint(strings.TrimSpace(text), 0, 16)
+	text = strings.TrimSpace(text)
+	base := 10
+	if strings.HasPrefix(strings.ToLower(text), "0x") {
+		base = 0
+	} else if strings.ContainsAny(strings.ToLower(text), "abcdef") {
+		base = 16
+	}
+	value, err := strconv.ParseUint(text, base, 16)
 	if err != nil {
 		return 0, err
 	}
