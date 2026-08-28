@@ -56,6 +56,7 @@ type memoryRegion struct {
 type bootInfo struct {
 	bytesPerPacket byte
 	deviceFamily   byte
+	versionFlag    byte
 	regions        []memoryRegion
 }
 
@@ -65,6 +66,9 @@ func main() {
 	info := flag.Bool("info", false, "query a compatible bootloader without changing memory")
 	path := flag.String("path", "", "specific /dev/hidraw path for --info")
 	checkHex := flag.String("check-hex", "", "validate an Intel HEX file without accessing USB")
+	writeHex := flag.String("write", "", "erase, program, verify, and reset using an Intel HEX file")
+	verifyHex := flag.String("verify", "", "verify an Intel HEX file without erasing or programming")
+	reset := flag.Bool("reset", false, "reset the selected bootloader device")
 	vidText := flag.String("vid", fmt.Sprintf("0x%04x", defaultVID), "USB vendor ID")
 	pidText := flag.String("pid", fmt.Sprintf("0x%04x", defaultPID), "USB product ID")
 	versionFlag := flag.Bool("version", false, "print version")
@@ -84,7 +88,7 @@ func main() {
 		return
 	}
 
-	if !*list && !*all && !*info {
+	if !*list && !*all && !*info && *writeHex == "" && *verifyHex == "" && !*reset {
 		usage()
 		os.Exit(2)
 	}
@@ -97,6 +101,19 @@ func main() {
 	if err != nil {
 		fatal("invalid --pid: %v", err)
 	}
+	actions := 0
+	if *writeHex != "" {
+		actions++
+	}
+	if *verifyHex != "" {
+		actions++
+	}
+	if *reset {
+		actions++
+	}
+	if actions > 1 {
+		fatal("choose only one of --write, --verify, or --reset")
+	}
 	if *info && *path != "" {
 		device, err := inspectHIDRaw(*path)
 		if err != nil {
@@ -107,6 +124,32 @@ func main() {
 		}
 		if err := queryDeviceInfo(device.path); err != nil {
 			fatal("querying %s: %v", device.path, err)
+		}
+		return
+	}
+	if actions == 1 {
+		devices, err := enumerateHIDRaw()
+		if err != nil {
+			fatal("enumerating /dev/hidraw*: %v", err)
+		}
+		device, err := selectDevice(devices, *path, vid, pid)
+		if err != nil {
+			fatal("selecting device: %v", err)
+		}
+		if *reset {
+			if err := resetDevice(device.path); err != nil {
+				fatal("resetting %s: %v", device.path, err)
+			}
+			return
+		}
+		imagePath := *writeHex
+		verifyOnly := false
+		if imagePath == "" {
+			imagePath = *verifyHex
+			verifyOnly = true
+		}
+		if err := programImage(device.path, imagePath, verifyOnly); err != nil {
+			fatal("programming %s: %v", device.path, err)
 		}
 		return
 	}
@@ -150,10 +193,13 @@ func usage() {
   hidbootloader-cli --all
   hidbootloader-cli --info [--path /dev/hidrawX]
   hidbootloader-cli --check-hex IMAGE.hex
+  hidbootloader-cli --write IMAGE.hex [--path /dev/hidrawX]
+  hidbootloader-cli --verify IMAGE.hex [--path /dev/hidrawX]
+  hidbootloader-cli --reset [--path /dev/hidrawX]
 
-The default filter is the Microchip HID bootloader VID/PID. Programming
-commands are not implemented yet; this version enumerates devices and can
-query bootloader information without changing memory.
+The default filter is the Microchip HID bootloader VID/PID. The write command
+erases only after the HEX file has been fully validated and the device has
+answered QUERY_DEVICE.
 `
 	fmt.Fprint(flag.CommandLine.Output(), text)
 	flag.PrintDefaults()
@@ -267,7 +313,7 @@ func decodeBootInfo(report []byte) (bootInfo, error) {
 		return bootInfo{}, fmt.Errorf("unexpected QUERY_DEVICE response command: 0x%02x", report[0])
 	}
 
-	info := bootInfo{bytesPerPacket: report[1], deviceFamily: report[2]}
+	info := bootInfo{bytesPerPacket: report[1], deviceFamily: report[2], versionFlag: report[57]}
 	for offset := 3; offset+9 <= len(report) && len(info.regions) < 6; offset += 9 {
 		region := memoryRegion{
 			typ:     report[offset],
