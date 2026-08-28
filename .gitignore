@@ -1,0 +1,8 @@
+/bin/
+/dist/
+*.exe
+*.hex
+*.elf
+*.map
+*.o
+
