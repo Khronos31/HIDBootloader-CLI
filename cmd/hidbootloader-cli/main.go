@@ -10,6 +10,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"github.com/Khronos31/HIDBootloader-CLI/internal/heximage"
 	"os"
 	"path/filepath"
 	"sort"
@@ -21,9 +22,9 @@ import (
 )
 
 const (
-	defaultVID = uint16(0x04d8)
-	defaultPID = uint16(0x003c)
-	queryDevice = byte(0x02)
+	defaultVID    = uint16(0x04d8)
+	defaultPID    = uint16(0x003c)
+	queryDevice   = byte(0x02)
 	hidPacketSize = 65
 
 	// Linux HIDRAW_GET_RAW_INFO is _IOR('H', 0x03, struct hidraw_devinfo).
@@ -63,6 +64,7 @@ func main() {
 	all := flag.Bool("all", false, "list all hidraw devices")
 	info := flag.Bool("info", false, "query a compatible bootloader without changing memory")
 	path := flag.String("path", "", "specific /dev/hidraw path for --info")
+	checkHex := flag.String("check-hex", "", "validate an Intel HEX file without accessing USB")
 	vidText := flag.String("vid", fmt.Sprintf("0x%04x", defaultVID), "USB vendor ID")
 	pidText := flag.String("pid", fmt.Sprintf("0x%04x", defaultPID), "USB product ID")
 	versionFlag := flag.Bool("version", false, "print version")
@@ -71,6 +73,14 @@ func main() {
 
 	if *versionFlag {
 		fmt.Println("hidbootloader-cli " + version)
+		return
+	}
+	if *checkHex != "" {
+		image, err := heximage.LoadFile(*checkHex)
+		if err != nil {
+			fatal("checking %s: %v", *checkHex, err)
+		}
+		fmt.Printf("%s: valid Intel HEX (%d data bytes)\n", *checkHex, image.Len())
 		return
 	}
 
@@ -126,6 +136,7 @@ func usage() {
   hidbootloader-cli --list [--vid 0x04d8] [--pid 0x003c]
   hidbootloader-cli --all
   hidbootloader-cli --info [--path /dev/hidrawX]
+  hidbootloader-cli --check-hex IMAGE.hex
 
 The default filter is the Microchip HID bootloader VID/PID. Programming
 commands are not implemented yet; this version enumerates devices and can
