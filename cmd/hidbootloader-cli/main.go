@@ -6,6 +6,7 @@
 package main
 
 import (
+	"encoding/binary"
 	"errors"
 	"flag"
 	"fmt"
@@ -15,12 +16,15 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
+	"time"
 	"unsafe"
 )
 
 const (
 	defaultVID = uint16(0x04d8)
 	defaultPID = uint16(0x003c)
+	queryDevice = byte(0x02)
+	hidPacketSize = 65
 
 	// Linux HIDRAW_GET_RAW_INFO is _IOR('H', 0x03, struct hidraw_devinfo).
 	// struct hidraw_devinfo is 8 bytes on the supported Linux architectures.
@@ -42,9 +46,23 @@ type hidDevice struct {
 	product uint16
 }
 
+type memoryRegion struct {
+	typ     byte
+	address uint32
+	size    uint32
+}
+
+type bootInfo struct {
+	bytesPerPacket byte
+	deviceFamily   byte
+	regions        []memoryRegion
+}
+
 func main() {
 	list := flag.Bool("list", false, "list compatible bootloader HID devices")
 	all := flag.Bool("all", false, "list all hidraw devices")
+	info := flag.Bool("info", false, "query a compatible bootloader without changing memory")
+	path := flag.String("path", "", "specific /dev/hidraw path for --info")
 	vidText := flag.String("vid", fmt.Sprintf("0x%04x", defaultVID), "USB vendor ID")
 	pidText := flag.String("pid", fmt.Sprintf("0x%04x", defaultPID), "USB product ID")
 	versionFlag := flag.Bool("version", false, "print version")
@@ -56,7 +74,7 @@ func main() {
 		return
 	}
 
-	if !*list && !*all {
+	if !*list && !*all && !*info {
 		usage()
 		os.Exit(2)
 	}
@@ -91,18 +109,188 @@ func main() {
 			fmt.Printf("no matching bootloader device found (VID=%04x PID=%04x)\n", vid, pid)
 		}
 	}
+
+	if *info {
+		device, err := selectDevice(devices, *path, vid, pid)
+		if err != nil {
+			fatal("selecting device: %v", err)
+		}
+		if err := queryDeviceInfo(device.path); err != nil {
+			fatal("querying %s: %v", device.path, err)
+		}
+	}
 }
 
 func usage() {
 	const text = `Usage:
   hidbootloader-cli --list [--vid 0x04d8] [--pid 0x003c]
   hidbootloader-cli --all
+  hidbootloader-cli --info [--path /dev/hidrawX]
 
 The default filter is the Microchip HID bootloader VID/PID. Programming
-commands are not implemented yet; this version only enumerates hidraw devices.
+commands are not implemented yet; this version enumerates devices and can
+query bootloader information without changing memory.
 `
 	fmt.Fprint(flag.CommandLine.Output(), text)
 	flag.PrintDefaults()
+}
+
+func selectDevice(devices []hidDevice, path string, vendor, product uint16) (hidDevice, error) {
+	if path != "" {
+		for _, device := range devices {
+			if device.path != path {
+				continue
+			}
+			if device.vendor != vendor || device.product != product {
+				return hidDevice{}, fmt.Errorf("%s is VID=%04x PID=%04x, expected VID=%04x PID=%04x", path, device.vendor, device.product, vendor, product)
+			}
+			return device, nil
+		}
+		return hidDevice{}, fmt.Errorf("%s was not found", path)
+	}
+
+	var match *hidDevice
+	for index := range devices {
+		if devices[index].vendor != vendor || devices[index].product != product {
+			continue
+		}
+		if match != nil {
+			return hidDevice{}, fmt.Errorf("multiple matching devices; specify --path")
+		}
+		match = &devices[index]
+	}
+	if match == nil {
+		return hidDevice{}, fmt.Errorf("no matching bootloader device found (VID=%04x PID=%04x)", vendor, product)
+	}
+	return *match, nil
+}
+
+func queryDeviceInfo(path string) error {
+	file, err := os.OpenFile(path, os.O_RDWR, 0)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+
+	request := make([]byte, hidPacketSize)
+	request[1] = queryDevice
+	if err := writeReport(file, request); err != nil {
+		return fmt.Errorf("send QUERY_DEVICE: %w", err)
+	}
+	report, err := readReport(file, 5000*time.Millisecond)
+	if err != nil {
+		return fmt.Errorf("receive QUERY_DEVICE: %w", err)
+	}
+	info, err := decodeBootInfo(report)
+	if err != nil {
+		return err
+	}
+
+	fmt.Printf("%s bootloader: family=%s bytes-per-packet=%d\n", path, familyName(info.deviceFamily), info.bytesPerPacket)
+	for _, region := range info.regions {
+		fmt.Printf("  region type=%s address=0x%08x size=0x%08x\n", regionName(region.typ), region.address, region.size)
+	}
+	return nil
+}
+
+func writeReport(file *os.File, report []byte) error {
+	count, err := file.Write(report)
+	if err != nil {
+		return err
+	}
+	if count != len(report) {
+		return fmt.Errorf("short HID write: %d of %d bytes", count, len(report))
+	}
+	return nil
+}
+
+func readReport(file *os.File, timeout time.Duration) ([]byte, error) {
+	pollFD := struct {
+		fd      int32
+		events  int16
+		revents int16
+	}{fd: int32(file.Fd()), events: 0x0001}
+	milliseconds := int(timeout / time.Millisecond)
+	result, _, errno := syscall.Syscall6(syscall.SYS_POLL, uintptr(unsafe.Pointer(&pollFD)), 1, uintptr(milliseconds), 0, 0, 0)
+	if errno != 0 {
+		return nil, errno
+	}
+	if result == 0 {
+		return nil, fmt.Errorf("timeout after %s", timeout)
+	}
+	if pollFD.revents&0x0001 == 0 {
+		return nil, fmt.Errorf("HID read returned poll events 0x%x", pollFD.revents)
+	}
+	report := make([]byte, hidPacketSize)
+	count, err := file.Read(report)
+	if err != nil {
+		return nil, err
+	}
+	if count == 0 {
+		return nil, fmt.Errorf("empty HID report")
+	}
+	return report[:count], nil
+}
+
+func decodeBootInfo(report []byte) (bootInfo, error) {
+	if len(report) >= 2 && report[0] == 0 && report[1] == queryDevice {
+		report = report[1:]
+	}
+	if len(report) < 58 {
+		return bootInfo{}, fmt.Errorf("short QUERY_DEVICE response: %d bytes", len(report))
+	}
+	if report[0] != queryDevice {
+		return bootInfo{}, fmt.Errorf("unexpected QUERY_DEVICE response command: 0x%02x", report[0])
+	}
+
+	info := bootInfo{bytesPerPacket: report[1], deviceFamily: report[2]}
+	for offset := 3; offset+9 <= len(report) && len(info.regions) < 6; offset += 9 {
+		region := memoryRegion{
+			typ:     report[offset],
+			address: binary.LittleEndian.Uint32(report[offset+1 : offset+5]),
+			size:    binary.LittleEndian.Uint32(report[offset+5 : offset+9]),
+		}
+		if region.typ == 0xff {
+			break
+		}
+		if region.typ != 0 {
+			info.regions = append(info.regions, region)
+		}
+	}
+	if info.bytesPerPacket == 0 || info.bytesPerPacket > 58 {
+		return bootInfo{}, fmt.Errorf("invalid bootloader packet payload size: %d", info.bytesPerPacket)
+	}
+	return info, nil
+}
+
+func familyName(family byte) string {
+	switch family {
+	case 0x01:
+		return "PIC18"
+	case 0x02:
+		return "PIC24/dsPIC"
+	case 0x03:
+		return "PIC32"
+	case 0x04:
+		return "PIC16"
+	default:
+		return fmt.Sprintf("unknown(0x%02x)", family)
+	}
+}
+
+func regionName(region byte) string {
+	switch region {
+	case 0x01:
+		return "program"
+	case 0x02:
+		return "EEPROM"
+	case 0x03:
+		return "config"
+	case 0x04:
+		return "user-ID"
+	default:
+		return fmt.Sprintf("unknown(0x%02x)", region)
+	}
 }
 
 func parseID(text string) (uint16, error) {
