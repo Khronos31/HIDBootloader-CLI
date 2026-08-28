@@ -97,6 +97,19 @@ func main() {
 	if err != nil {
 		fatal("invalid --pid: %v", err)
 	}
+	if *info && *path != "" {
+		device, err := inspectHIDRaw(*path)
+		if err != nil {
+			fatal("opening %s: %v", *path, err)
+		}
+		if device.vendor != vid || device.product != pid {
+			fatal("%s is VID=%04x PID=%04x, expected VID=%04x PID=%04x", *path, device.vendor, device.product, vid, pid)
+		}
+		if err := queryDeviceInfo(device.path); err != nil {
+			fatal("querying %s: %v", device.path, err)
+		}
+		return
+	}
 
 	devices, err := enumerateHIDRaw()
 	if err != nil {
@@ -342,7 +355,8 @@ func enumerateHIDRaw() ([]hidDevice, error) {
 				continue
 			}
 			if errors.Is(err, syscall.EACCES) || errors.Is(err, syscall.EPERM) {
-				return nil, fmt.Errorf("%s: permission denied (run as root or install a udev rule)", path)
+				fmt.Fprintf(os.Stderr, "warning: skipping %s: permission denied\n", path)
+				continue
 			}
 			return nil, fmt.Errorf("%s: %w", path, err)
 		}
