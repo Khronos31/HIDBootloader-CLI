@@ -12,7 +12,19 @@ Linux向けの、Microchip HID bootloader対応デバイス用コマンドライ
 
 ## 状態
 
-現在は初期実装段階です。`--list`によるLinux HIDデバイス列挙のみ実装済みで、実機に対する書込み機能は未完成です。
+初期実装が動作しています。`--list`、`--info`、`--check-hex`、`--verify`、`--write`、`--reset`を利用できます。Linux x86_64上でAD00020の実機書込み・検証に成功済みです。
+
+初版の書込み処理はPIC18系のプログラム領域を対象とし、HEX内の設定領域は安全のため無視します。BOOTスイッチをBOOT側にして接続し、書込み完了後に通常側へ戻してUSBを再接続してください。
+
+## ビルド
+
+Go 1.20以降で、外部Goモジュールなしにビルドできます。
+
+```sh
+make static VERSION=0.1.0
+sudo ./bin/hidbootloader-cli --list
+sudo ./bin/hidbootloader-cli --write firmware.hex
+```
 
 ## ライセンス
 

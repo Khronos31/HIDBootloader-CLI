@@ -64,7 +64,7 @@ func main() {
 	list := flag.Bool("list", false, "list compatible bootloader HID devices")
 	all := flag.Bool("all", false, "list all hidraw devices")
 	info := flag.Bool("info", false, "query a compatible bootloader without changing memory")
-	path := flag.String("path", "", "specific /dev/hidraw path for --info")
+	path := flag.String("path", "", "specific /dev/hidraw path for a device operation")
 	checkHex := flag.String("check-hex", "", "validate an Intel HEX file without accessing USB")
 	writeHex := flag.String("write", "", "erase, program, verify, and reset using an Intel HEX file")
 	verifyHex := flag.String("verify", "", "verify an Intel HEX file without erasing or programming")

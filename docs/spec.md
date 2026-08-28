@@ -28,6 +28,13 @@ The exact command-line spelling may change before the first stable release.
 6. The source tree contains no proprietary Microchip/BTO source, binary,
    artwork, or credentials.
 
+## Current implementation limits
+
+- Linux only.
+- PIC18 program memory only. Configuration memory in the HEX file is reported
+  and ignored.
+- The default VID/PID is `04d8:003c`, with `--vid` and `--pid` overrides.
+
 ## Non-goals for the first release
 
 - Windows support.
